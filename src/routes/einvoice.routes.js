@@ -17,6 +17,15 @@ router.post('/submit', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'invoice_id required' });
     }
 
+    // Validate B2B requirement before creating anything: previously an invalid
+    // request still left a draft invoice behind. SIRET must be exactly 14 digits
+    // (the old length-only check accepted "ABCDEFGHIJKLMN").
+    if (typeof customer_siret !== 'string' || !/^\d{14}$/.test(customer_siret)) {
+      return res.status(400).json({ 
+        error: 'Valid customer SIRET required for e-invoicing (14 digits)' 
+      });
+    }
+
     // Find or create invoice
     let invoice = db.invoices?.find(inv => inv.id === invoice_id);
     if (!invoice) {
@@ -40,22 +49,15 @@ router.post('/submit', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    // Validate B2B requirement
-    if (!customer_siret || customer_siret.length !== 14) {
-      return res.status(400).json({ 
-        error: 'Valid customer SIRET required for e-invoicing (14 digits)' 
+    // BUG G fix: an invoice may only be submitted once. A second submission
+    // would register a duplicate legal invoice with the tax authority.
+    // Rejected invoices can be corrected and resubmitted, so they are not blocked.
+    if (invoice.einvoice_status === 'submitted' || invoice.einvoice_status === 'accepted') {
+      return res.status(409).json({ 
+        error: 'Invoice already submitted to tax authority',
+        submission_id: invoice.einvoice_submission_id
       });
     }
-
-    // BUG G: No duplicate submission check
-    // Should prevent submitting the same invoice twice
-    // Missing validation below:
-    
-    // if (invoice.einvoice_status === 'submitted' || invoice.einvoice_status === 'accepted') {
-    //   return res.status(409).json({ 
-    //     error: 'Invoice already submitted to tax authority' 
-    //   });
-    // }
 
     // Simulate tax authority submission
     const submission_id = `SUB-${uuidv4()}`;
@@ -65,6 +67,8 @@ router.post('/submit', authenticate, async (req, res) => {
 
     // In real system, this would call external API
     // await seqinoClient.submitInvoice(invoice);
+    // Note: einvoice_status is set *before* that await so a concurrent request
+    // already sees 'submitted' and is rejected by the check above.
 
     res.status(200).json({
       success: true,

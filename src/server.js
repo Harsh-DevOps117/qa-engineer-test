@@ -2,6 +2,8 @@ import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
+import { resolve } from "path";
+import { fileURLToPath } from "url";
 import authRoutes from "./routes/auth.routes.js";
 import paymentRoutes from "./routes/payment.routes.js";
 import webhookRoutes from "./routes/webhook.routes.js";
@@ -22,7 +24,15 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+// Keep the raw request bytes so webhook signatures can be verified against
+// exactly what the provider signed (re-serialising req.body is not reliable).
+app.use(
+  express.json({
+    verify: (req, res, buf) => {
+      req.rawBody = buf;
+    },
+  }),
+);
 
 // Initialize database
 initDatabase();
@@ -99,14 +109,29 @@ app.use((req, res) => {
 
 // Error handler
 app.use((err, req, res, next) => {
+  // Malformed JSON is a client error, not a server failure
+  if (err.type === "entity.parse.failed") {
+    return res.status(400).json({ error: "Malformed JSON body" });
+  }
+  if (err.type === "entity.too.large") {
+    return res.status(413).json({ error: "Request body too large" });
+  }
   console.error(err.stack);
   res.status(500).json({ error: "Something went wrong!" });
 });
 
-httpServer.listen(PORT, () => {
-  console.log(`✅ EU Pay QA Test API running on http://localhost:${PORT}`);
-  console.log(`📖 Visit http://localhost:${PORT} for available endpoints`);
-  console.log(`🔌 Socket.IO ready for real-time updates`);
-});
+// Only bind the port when run directly (npm start), so tests can import the
+// app without starting a second server or holding port 3000.
+const isMainModule =
+  process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
 
+if (isMainModule) {
+  httpServer.listen(PORT, () => {
+    console.log(`✅ EU Pay QA Test API running on http://localhost:${PORT}`);
+    console.log(`📖 Visit http://localhost:${PORT} for available endpoints`);
+    console.log(`🔌 Socket.IO ready for real-time updates`);
+  });
+}
+
+export { httpServer, io };
 export default app;

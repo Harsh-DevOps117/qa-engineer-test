@@ -5,7 +5,5 @@ node_modules/
 npm-debug.log*
 
 # Candidate submissions (don't track these)
-bug-reports.md
-fixes.md
-test-plan.md
+# bug-reports.md, fixes.md and test-plan.md are un-ignored so they are part of the PR
 submissions/

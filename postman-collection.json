@@ -192,6 +192,179 @@
           }
         }
       ]
+    },
+    {
+      "name": "Webhooks",
+      "item": [
+        {
+          "name": "Payment Status - Valid Signature",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Signs the exact request body with HMAC-SHA256, as the payment provider would.",
+                  "// The secret must match WEBHOOK_SECRET on the server (default below).",
+                  "pm.variables.set('event_id', 'evt_' + Date.now());",
+                  "const secret = pm.variables.get('webhook_secret') || 'test-webhook-secret-key';",
+                  "const body = pm.variables.replaceIn(pm.request.body.raw);",
+                  "const signature = CryptoJS.HmacSHA256(body, secret).toString(CryptoJS.enc.Hex);",
+                  "pm.request.headers.upsert({ key: 'x-webhook-signature', value: signature });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"payment_id\": \"2\",\n  \"status\": \"completed\",\n  \"event_id\": \"{{event_id}}\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:3000/api/webhooks/payment-status",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "webhooks",
+                "payment-status"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Payment Status - Same Event Twice (2nd returns duplicate: true)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Signs the exact request body with HMAC-SHA256, as the payment provider would.",
+                  "// The secret must match WEBHOOK_SECRET on the server (default below).",
+                  "pm.variables.set('event_id', 'evt_' + Date.now());",
+                  "const secret = pm.variables.get('webhook_secret') || 'test-webhook-secret-key';",
+                  "const body = pm.variables.replaceIn(pm.request.body.raw);",
+                  "const signature = CryptoJS.HmacSHA256(body, secret).toString(CryptoJS.enc.Hex);",
+                  "pm.request.headers.upsert({ key: 'x-webhook-signature', value: signature });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"payment_id\": \"2\",\n  \"status\": \"completed\",\n  \"event_id\": \"evt_duplicate_demo\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:3000/api/webhooks/payment-status",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "webhooks",
+                "payment-status"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Payment Status - Fake Signature (Should Fail 401)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-webhook-signature",
+                "value": "fake-signature"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"payment_id\": \"2\",\n  \"status\": \"completed\",\n  \"event_id\": \"evt_fake\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:3000/api/webhooks/payment-status",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "webhooks",
+                "payment-status"
+              ]
+            }
+          }
+        },
+        {
+          "name": "E-Invoice Status - Valid Signature",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Signs the exact request body with HMAC-SHA256, as the payment provider would.",
+                  "// The secret must match WEBHOOK_SECRET on the server (default below).",
+                  "pm.variables.set('event_id', 'evt_' + Date.now());",
+                  "const secret = pm.variables.get('webhook_secret') || 'test-webhook-secret-key';",
+                  "const body = pm.variables.replaceIn(pm.request.body.raw);",
+                  "const signature = CryptoJS.HmacSHA256(body, secret).toString(CryptoJS.enc.Hex);",
+                  "pm.request.headers.upsert({ key: 'x-webhook-signature', value: signature });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"invoice_id\": \"inv-1\",\n  \"status\": \"accepted\",\n  \"tax_authority_id\": \"DGFIP-123\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:3000/api/webhooks/e-invoice",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "3000",
+              "path": [
+                "api",
+                "webhooks",
+                "e-invoice"
+              ]
+            }
+          }
+        }
+      ]
     }
   ]
 }

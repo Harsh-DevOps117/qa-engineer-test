@@ -1,6 +1,6 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
-import { db } from '../db/database.js';
+import { db, findUserById } from '../db/database.js';
 import { v4 as uuidv4 } from 'uuid';
 
 const router = express.Router();
@@ -41,26 +41,49 @@ router.post('/', (req, res) => {
       return res.status(400).json({ error: 'Order must have at least one item' });
     }
 
-    // BUG F: No duplicate order prevention
-    // Should check if table already has a pending order
-    // Missing validation below:
-    
-    // const existingOrder = (db.table_orders || []).find(
-    //   o => o.merchant_id === merchant_id && 
-    //        o.table_number === table_number && 
-    //        o.status === 'pending'
-    // );
-    // if (existingOrder) {
-    //   return res.status(409).json({ error: 'Table already has a pending order' });
-    // }
+    // Each item needs a non-negative price and a positive whole quantity,
+    // otherwise totals came out negative (price: -100) or null (missing price)
+    const hasInvalidItem = items.some(item =>
+      !item ||
+      typeof item.price !== 'number' || !Number.isFinite(item.price) || item.price < 0 ||
+      !Number.isInteger(item.quantity) || item.quantity < 1
+    );
+    if (hasInvalidItem) {
+      return res.status(400).json({ error: 'Each item needs a price >= 0 and a whole quantity >= 1' });
+    }
+
+    // Normalise ids to strings: merchant ids from the JWT are strings, so an
+    // order stored with merchant_id 1 (number) was invisible in GET and
+    // un-updatable (403) for its own merchant. Same for "5" vs 5 tables.
+    const merchantId = String(merchant_id);
+    const tableNumber = String(table_number);
+
+    if (!findUserById(merchantId)) {
+      return res.status(404).json({ error: 'Merchant not found' });
+    }
+
+    // BUG F fix: a table can only have one pending order at a time. Prevents
+    // double-taps / network retries from sending the kitchen the same order twice.
+    // Confirmed/preparing orders are not blocked so a table can still order more.
+    const existingOrder = (db.table_orders || []).find(
+      o => o.merchant_id === merchantId &&
+           o.table_number === tableNumber &&
+           o.status === 'pending'
+    );
+    if (existingOrder) {
+      return res.status(409).json({
+        error: 'Table already has a pending order',
+        order_id: existingOrder.id
+      });
+    }
 
     // Calculate total
     const total = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
     const newOrder = {
       id: uuidv4(),
-      merchant_id,
-      table_number,
+      merchant_id: merchantId,
+      table_number: tableNumber,
       items,
       customer_name: customer_name || 'Guest',
       order_type: order_type || 'dine_in',
@@ -73,8 +96,8 @@ router.post('/', (req, res) => {
     if (!db.table_orders) db.table_orders = [];
     db.table_orders.push(newOrder);
 
-    // Emit socket event (would be handled by socket.io)
-    // io.to(`merchant_${merchant_id}`).emit('new_order', newOrder);
+    // Notify the merchant dashboard in real time (README: new_order event)
+    req.app.get('io')?.to(`merchant_${merchantId}`).emit('new_order', newOrder);
 
     res.status(201).json({
       success: true,
@@ -117,12 +140,12 @@ router.patch('/:id/status', authenticate, (req, res) => {
     order.status = status;
     order.updated_at = new Date();
 
-    // Emit socket event for real-time update
-    // io.to(`table_${order.table_number}`).emit('order_status_changed', {
-    //   order_id: order.id,
-    //   status: status,
-    //   table_number: order.table_number
-    // });
+    // Emit socket event for real-time update (README: order_status_changed event)
+    req.app.get('io')?.to(`table_${order.table_number}`).emit('order_status_changed', {
+      order_id: order.id,
+      status: status,
+      table_number: order.table_number
+    });
 
     res.json({
       success: true,
